@@ -1,0 +1,410 @@
+{
+  "name": "AI News Digest (reconstructed)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google_news"
+            },
+            {
+              "name": "q",
+              "value": "artificial intelligence OR generative AI OR LLM"
+            },
+            {
+              "name": "gl",
+              "value": "us"
+            },
+            {
+              "name": "hl",
+              "value": "en"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Google_news search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "REPLACE_ME",
+          "name": "SerpAPI (api_key)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "news_results",
+        "options": {}
+      },
+      "name": "Split Out",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "title",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "link",
+              "value": "={{ $json.link }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "source",
+              "value": "={{ $json.source && $json.source.name ? $json.source.name : '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "date",
+              "value": "={{ $json.date || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "snippet",
+              "value": "={{ $json.snippet || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.title }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.link }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Filter",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// n8n Code node \"Code in JavaScript\" — mode: Run Once for All Items\n// RECONSTRUCTED (not the original source). Input: ~99 articles {title, link, source, date, snippet}.\n// Output: top 6 cleaned, de-duplicated, AI-relevant articles.\n\nconst TOP_N = 6;\n\nconst AI_TERMS = /\\b(ai|a\\.i\\.|artificial intelligence|machine learning|deep learning|neural|llm|large language model|generative|genai|chatbot|gpt|chatgpt|openai|anthropic|claude|gemini|deepmind|mistral|llama|groq|nvidia|copilot|agentic|agents?|robotics|foundation model|diffusion|transformer)\\b/i;\nconst BLOCK_TITLE = /\\b(horoscope|coupon|promo code|black friday|giveaway|casino|betting odds|sponsored)\\b/i;\nconst BLOCK_SOURCES = /(pinterest|facebook|instagram|tiktok|youtube)/i;\n\nconst MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];\n\nconst cleanTitle = (t = '', source = '') => {\n  let s = String(t).replace(/\\s+/g, ' ').trim();\n  // Google News often appends \" - Source Name\"\n  if (source) {\n    const tail = ' - ' + source;\n    if (s.toLowerCase().endsWith(tail.toLowerCase())) s = s.slice(0, -tail.length).trim();\n  }\n  return s;\n};\n\nconst canonicalUrl = (u = '') => {\n  try {\n    const url = new URL(u);\n    url.hash = '';\n    [...url.searchParams.keys()].forEach(k => {\n      if (/^(utm_|fbclid|gclid|ref|cmpid|mc_)/i.test(k)) url.searchParams.delete(k);\n    });\n    return (url.hostname.replace(/^www\\./, '') + url.pathname.replace(/\\/+$/, '') + url.search).toLowerCase();\n  } catch (e) { return String(u).toLowerCase(); }\n};\n\nconst tokens = (t) => new Set(\n  t.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(w => w.length > 2)\n);\nconst jaccard = (a, b) => {\n  if (!a.size || !b.size) return 0;\n  let inter = 0; a.forEach(x => { if (b.has(x)) inter++; });\n  return inter / (a.size + b.size - inter);\n};\n\n// SerpAPI dates look like \"05/13/2026, 07:00 AM, +0000 UTC\"; fall back to relative strings (\"3 hours ago\")\nconst parseDate = (raw) => {\n  if (!raw) return null;\n  const m = String(raw).match(/(\\d{2})\\/(\\d{2})\\/(\\d{4})/);\n  if (m) return new Date(Date.UTC(+m[3], +m[1] - 1, +m[2]));\n  const rel = String(raw).match(/(\\d+)\\s*(minute|hour|day|week|month)s?\\s+ago/i);\n  if (rel) {\n    const unit = { minute: 60e3, hour: 36e5, day: 864e5, week: 6048e5, month: 2592e6 }[rel[2].toLowerCase()];\n    return new Date(Date.now() - (+rel[1]) * unit);\n  }\n  const d = new Date(raw);\n  return isNaN(d) ? null : d;\n};\nconst fmtDate = (d) => d ? `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}` : '';\n\nconst seenUrls = new Set();\nconst kept = [];\n\nfor (const item of $input.all()) {\n  const j = item.json;\n  const source = (j.source || '').toString().trim();\n  const title = cleanTitle(j.title, source);\n  const link = (j.link || '').toString().trim();\n  const snippet = (j.snippet || '').toString().replace(/\\s+/g, ' ').trim();\n\n  // 1. validity\n  if (!title || !/^https?:\\/\\//i.test(link)) continue;\n  // 2. relevance / noise\n  if (BLOCK_TITLE.test(title) || BLOCK_SOURCES.test(source)) continue;\n  const haystack = `${title} ${snippet}`;\n  if (!AI_TERMS.test(haystack)) continue;\n  // 3. exact URL duplicate\n  const key = canonicalUrl(link);\n  if (seenUrls.has(key)) continue;\n  seenUrls.add(key);\n\n  const date = parseDate(j.date);\n  const score = (haystack.match(new RegExp(AI_TERMS.source, 'gi')) || []).length;\n  kept.push({ title, link, source: source || 'Unknown source', snippet, date, score, tok: tokens(title) });\n}\n\n// 4. near-duplicate titles (same story, different outlet): keep the first / higher-scored\nkept.sort((a, b) => b.score - a.score);\nconst unique = [];\nfor (const a of kept) {\n  if (!unique.some(b => jaccard(a.tok, b.tok) >= 0.7)) unique.push(a);\n}\n\n// 5. newest first, tie-break on relevance score; take top N\nunique.sort((a, b) => ((b.date?.getTime() || 0) - (a.date?.getTime() || 0)) || (b.score - a.score));\n\nreturn unique.slice(0, TOP_N).map((a, i) => ({\n  json: {\n    rank: i + 1,\n    title: a.title,\n    link: a.link,\n    source: a.source,\n    date: fmtDate(a.date),\n    snippet: a.snippet,\n  },\n}));\n"
+      },
+      "name": "Code in JavaScript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// n8n Code node \"Code in JavaScript1\" — mode: Run Once for All Items\n// RECONSTRUCTED (not the original source). Input: 6 article items. Output: ONE item with the LLM prompt.\n\nconst articles = $input.all().map(i => i.json);\n\nconst block = articles.map(a =>\n`ARTICLE ${a.rank}\nTitle: ${a.title}\nSource: ${a.source}\nDate: ${a.date}\nURL: ${a.link}\nSnippet: ${a.snippet || '(none provided)'}`\n).join('\\n\\n');\n\nconst prompt =\n`Write the newsletter entries for the ${articles.length} articles below.\n\n${block}`;\n\nreturn [{ json: { prompt, count: articles.length } }];\n"
+      },
+      "name": "Code in JavaScript1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "hasOutputParser": false,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are the editor of \"AI.NEWS\", a daily briefing on artificial intelligence and technology.\n\nFor EACH article supplied by the user, output exactly one HTML table row using the template below, in the same order as supplied.\n\nTEMPLATE (fill the UPPERCASE placeholders only):\n<tr><td style=\"padding:18px 0;border-bottom:1px solid #d3e3f5;\"><a href=\"URL\" target=\"_blank\" style=\"font-family:Georgia,'Times New Roman',serif;font-size:15px;font-weight:bold;line-height:1.4;color:#0a66c2;text-decoration:none;\">TITLE</a><p style=\"margin:8px 0 10px 0;font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:1.6;color:#4a5568;\">SUMMARY</p><p style=\"margin:0;font-family:'Courier New',monospace;font-size:11px;color:#5b7fa6;\">SOURCE, DATE</p></td></tr>\n\nRULES\n1. Copy URL, TITLE, SOURCE and DATE exactly as supplied. Never alter, shorten or invent a URL.\n2. SUMMARY: 2 to 3 plain, professional sentences (max 45 words) based ONLY on the title and snippet. Do not invent facts, numbers, quotes or names. If the snippet is thin, summarise cautiously.\n3. Escape &, < and > inside TITLE and SUMMARY as HTML entities.\n4. For the LAST article, change \"border-bottom:1px solid #d3e3f5;\" to \"border-bottom:none;\".\n5. Output ONLY the <tr>…</tr> rows. No introduction, no markdown, no code fences, no <table> wrapper, no commentary."
+            }
+          ]
+        }
+      },
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        660,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        680,
+        460
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "REPLACE_ME",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "subject",
+              "value": "=AI.NEWS | {{ $now.format('LLLL dd, yyyy') }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "html",
+              "value": "=<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light\">\n<title>AI.NEWS</title>\n<style>\n@media only screen and (max-width:620px) {\n.wrap { width:100% !important; }\n.pad { padding-left:18px !important; padding-right:18px !important; }\n.brand { font-size:28px !important; }\n}\n</style>\n</head>\n<body style=\"margin:0;padding:0;background:#ffffff;\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background:#ffffff;\">\n<tr><td align=\"center\" style=\"padding:24px 12px;\">\n<table role=\"presentation\" class=\"wrap\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:600px;max-width:100%;border-top:3px solid #0a66c2;border-bottom:3px solid #0a66c2;background:#ffffff;\">\n<!-- Header -->\n<tr><td class=\"pad\" style=\"background:#eef5fd;padding:22px 24px 18px 24px;border-bottom:1px solid #0b2a55;\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n<tr>\n<td style=\"font-family:'Courier New',monospace;font-size:10px;letter-spacing:1.5px;color:#5b7fa6;text-transform:uppercase;\">&#9679; AI News Digest</td>\n<td align=\"right\" style=\"font-family:'Courier New',monospace;font-size:10px;letter-spacing:1.5px;color:#5b7fa6;text-transform:uppercase;\">{{ $now.format('LLLL dd, yyyy') }}</td>\n</tr>\n</table>\n<div style=\"border-top:1px solid #c5d8ee;margin:10px 0 14px 0;\"></div>\n<div class=\"brand\" style=\"font-family:Georgia,'Times New Roman',serif;font-size:34px;font-weight:bold;letter-spacing:-1px;color:#0b2a55;line-height:1.1;\">AI.NEWS</div>\n<div style=\"font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:12px;color:#5b7fa6;margin-top:6px;\">Your daily briefing on artificial intelligence &amp; technology</div>\n</td></tr>\n<!-- Section label -->\n<tr><td class=\"pad\" style=\"padding:18px 24px 10px 24px;\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr>\n<td width=\"1\" style=\"white-space:nowrap;font-family:'Courier New',monospace;font-size:10px;letter-spacing:1.5px;color:#5b7fa6;text-transform:uppercase;padding-right:10px;\">Today's Briefing</td>\n<td style=\"border-top:1px solid #c5d8ee;\">&nbsp;</td>\n</tr></table>\n</td></tr>\n<!-- Articles card -->\n<tr><td class=\"pad\" style=\"padding:0 24px 24px 24px;\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background:#eef5fd;border:1px solid #c5d8ee;\">\n<tr><td style=\"padding:6px 18px;\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n{{ ($json.text || '').replace(/```html|```/g, '').trim() }}\n</table>\n</td></tr>\n</table>\n</td></tr>\n<!-- Footer -->\n<tr><td class=\"pad\" style=\"background:#eef5fd;padding:16px 24px;border-top:1px solid #c5d8ee;\">\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr>\n<td style=\"font-family:Georgia,'Times New Roman',serif;font-size:14px;font-weight:bold;letter-spacing:-0.5px;color:#0b2a55;\">AI.NEWS</td>\n<td align=\"right\" style=\"font-family:'Courier New',monospace;font-size:9px;letter-spacing:1px;color:#8aa5c4;text-transform:uppercase;line-height:1.5;\">Automated via n8n &middot; AI<br>Stay informed. Stay ahead.</td>\n</tr></table>\n</td></tr>\n</table>\n</td></tr>\n</table>\n</body>\n</html>",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Edit Fields1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        880,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "name": "Send a message",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1100,
+        260
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_ME",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Google_news search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google_news search": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata"
+  },
+  "tags": []
+}
